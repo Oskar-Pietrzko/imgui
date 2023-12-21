@@ -3925,8 +3925,8 @@ static bool InputTextFilterCharacter(ImGuiContext* ctx, unsigned int* p_char, Im
     if (c < 0x20)
     {
         bool pass = false;
-        pass |= (c == '\n' && (flags & ImGuiInputTextFlags_Multiline)); // Note that an Enter KEY will emit \r and be ignored (we poll for KEY in InputText() code)
-        pass |= (c == '\t' && (flags & ImGuiInputTextFlags_AllowTabInput));
+        pass |= (c == '\n') && (flags & ImGuiInputTextFlags_Multiline) != 0; // Note that an Enter KEY will emit \r and be ignored (we poll for KEY in InputText() code)
+        pass |= (c == '\t') && (flags & ImGuiInputTextFlags_AllowTabInput) != 0;
         if (!pass)
             return false;
         apply_named_filters = false; // Override named filters below so newline and tabs can still be inserted.
@@ -4111,7 +4111,6 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
 
     ImGuiWindow* draw_window = window;
     ImVec2 inner_size = frame_size;
-    ImGuiItemStatusFlags item_status_flags = 0;
     ImGuiLastItemData item_data_backup;
     if (is_multiline)
     {
@@ -4122,11 +4121,14 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             EndGroup();
             return false;
         }
-        item_status_flags = g.LastItemData.StatusFlags;
         item_data_backup = g.LastItemData;
         window->DC.CursorPos = backup_pos;
 
-        // Prevent NavActivate reactivating in BeginChild().
+        // Prevent NavActivation from Tabbing when our widget accepts Tab inputs: this allows cycling through widgets without stopping.
+        if (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_FromTabbing) && (flags & ImGuiInputTextFlags_AllowTabInput))
+            g.NavActivateId = 0;
+
+        // Prevent NavActivate reactivating in BeginChild() when we are already active.
         const ImGuiID backup_activate_id = g.NavActivateId;
         if (g.ActiveId == id) // Prevent reactivation
             g.NavActivateId = 0;
@@ -4158,7 +4160,6 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
         if (!(flags & ImGuiInputTextFlags_MergedItem))
             if (!ItemAdd(total_bb, id, &frame_bb, ImGuiItemFlags_Inputable))
                 return false;
-        item_status_flags = g.LastItemData.StatusFlags;
     }
     const bool hovered = ItemHoverable(frame_bb, id, g.LastItemData.InFlags);
     if (hovered)
@@ -5126,10 +5127,8 @@ bool ImGui::ColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flag
     ImGuiContext& g = *GImGui;
     const ImGuiStyle& style = g.Style;
     const float square_sz = GetFrameHeight();
-    const float w_full = CalcItemWidth();
-    const float w_button = (flags & ImGuiColorEditFlags_NoSmallPreview) ? 0.0f : (square_sz + style.ItemInnerSpacing.x);
-    const float w_inputs = w_full - w_button;
     const char* label_display_end = FindRenderedTextEnd(label);
+    float w_full = CalcItemWidth();
     g.NextItemData.ClearFlags();
 
     BeginGroup();
@@ -5163,6 +5162,9 @@ bool ImGui::ColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flag
     const bool alpha = (flags & ImGuiColorEditFlags_NoAlpha) == 0;
     const bool hdr = (flags & ImGuiColorEditFlags_HDR) != 0;
     const int components = alpha ? 4 : 3;
+    const float w_button = (flags & ImGuiColorEditFlags_NoSmallPreview) ? 0.0f : (square_sz + style.ItemInnerSpacing.x);
+    const float w_inputs = ImMax(w_full - w_button, 1.0f);
+    w_full = w_inputs + w_button;
 
     // Convert to the formats we need
     float f[4] = { col[0], col[1], col[2], alpha ? col[3] : 1.0f };
@@ -5210,7 +5212,7 @@ bool ImGui::ColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flag
             if (n > 0)
                 SameLine(0, style.ItemInnerSpacing.x);
             float next_split = IM_TRUNC(w_items * (n + 1) / components);
-            SetNextItemWidth(next_split - prev_split);
+            SetNextItemWidth(ImMax(next_split - prev_split, 1.0f));
             prev_split = next_split;
 
             // FIXME: When ImGuiColorEditFlags_HDR flag is passed HS values snap in weird ways when SV values go below 0.
